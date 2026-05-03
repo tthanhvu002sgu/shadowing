@@ -15,8 +15,13 @@ export async function POST(request) {
        if (Object.keys(TextToIPA._IPADict || {}).length === 0) {
          const fs = require('fs');
          const path = require('path');
-         const data = fs.readFileSync(path.join(process.cwd(), 'node_modules', 'text-to-ipa', 'ipadict.txt'), 'utf8');
-         TextToIPA._parseDict(data.split('\n'));
+        // For Vercel Serverless compatibility, we read from the public folder
+        const dictPath = path.join(process.cwd(), 'public', 'ipadict.txt');
+        
+        if (fs.existsSync(dictPath)) {
+          const dictContent = fs.readFileSync(dictPath, 'utf-8');
+          TextToIPA._parseDict(dictContent.split('\n'));
+        }
          
          // Mock loadDict so lookup() doesn't try to call it and crash
          TextToIPA.loadDict = () => {};
