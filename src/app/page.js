@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import YouTube from "react-youtube";
-import { Play, Pause, SkipBack, SkipForward, Repeat, Languages, Settings, User, LogOut, HelpCircle, PlusSquare, LayoutTemplate, Library, LineChart } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Repeat, Languages, LayoutTemplate, Library, Compass, X } from "lucide-react";
 import styles from "./page.module.css";
 
 export default function Home() {
@@ -17,6 +17,37 @@ export default function Home() {
   const [savedUrls, setSavedUrls] = useState([]);
   const [currentPhonetics, setCurrentPhonetics] = useState([]);
   const [currentTab, setCurrentTab] = useState('WORKSPACE');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+
+  const RECOMMENDED_BY_LEVEL = [
+    {
+      level: "IELTS 4.5 - 5.5",
+      badge: "Basic & Intermediate",
+      channels: [
+        { name: "BBC Learning", url: "BBC Learning English", description: "Everyday English topics with slow, clear pronunciation." },
+        { name: "English Speeches", url: "English Speeches", description: "Inspirational speeches with large subtitles & clear pacing." }
+      ]
+    },
+    {
+      level: "IELTS 6.0 - 6.5",
+      badge: "Upper Intermediate",
+      channels: [
+        { name: "TED Talks", url: "TED Talks", description: "Academic and technology talks. Natural speech with diverse global accents." },
+        { name: "National Geographic", url: "National Geographic", description: "Nature, history, and science documentaries. High quality vocabulary." }
+      ]
+    },
+    {
+      level: "IELTS 7.0+",
+      badge: "Advanced",
+      channels: [
+        { name: "Kurzgesagt", url: "Kurzgesagt in a nutshell", description: "Fast-paced scientific explanations. Extremely rich in advanced vocabulary." },
+        { name: "Vox", url: "Vox", description: "Complex visual journalism, fast native speech, and dense explanations." }
+      ]
+    }
+  ];
 
   const playerRef = useRef(null);
   const transcriptListRef = useRef(null);
@@ -50,7 +81,6 @@ export default function Home() {
         setError(data.error);
       } else {
         setTranscript(data.transcript);
-        // Default to the first sentence so auto-pause tracking works immediately
         if (data.transcript.length > 0) {
           setCurrentSentenceIndex(0);
         }
@@ -59,6 +89,22 @@ export default function Home() {
       setError("An unexpected error occurred while fetching the transcript.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSearch = async (queryToSearch = searchQuery) => {
+    if (!queryToSearch) return;
+    setIsSearching(true);
+    setSearchError("");
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(queryToSearch)}`);
+      const data = await res.json();
+      if (data.error) setSearchError(data.error);
+      else setSearchResults(data.videos || []);
+    } catch (err) {
+      setSearchError("Failed to fetch search results.");
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -121,20 +167,16 @@ export default function Home() {
 
         const isSeeking = Math.abs(currentTime - lastTime) > 1.0;
 
-        // 1. Auto-pause logic
         if (!isSeeking && currentSentenceIndex !== -1) {
           const currentSentence = transcript[currentSentenceIndex];
           if (lastTime <= currentSentence.end && currentTime >= currentSentence.end) {
             if (autoPause) {
               playerRef.current.pauseVideo();
-              // Do NOT automatically switch to the next sentence.
-              // Let the user read the current one. When they hit play, the normal sync will catch the next sentence.
               return;
             }
           }
         }
 
-        // 2. Normal sync: Always find the latest sentence that has started
         let activeIndex = -1;
         for (let i = transcript.length - 1; i >= 0; i--) {
           if (currentTime >= transcript[i].start) {
@@ -143,8 +185,6 @@ export default function Home() {
           }
         }
 
-        // Only update if we found a valid index and it's different.
-        // Don't revert to an older sentence if autoPause just pushed us forward.
         if (activeIndex !== -1 && activeIndex !== currentSentenceIndex) {
           if (!autoPause || state === 1) {
             setCurrentSentenceIndex(activeIndex);
@@ -173,6 +213,54 @@ export default function Home() {
     localStorage.setItem('shadowing_urls', JSON.stringify(updated));
   };
 
+  const handleMarkStudied = (quality = 4) => {
+    if (!urlInput) return;
+    const vId = extractVideoId(urlInput);
+    if (!vId) return;
+
+    setSavedUrls(prev => {
+      const existingIdx = prev.findIndex(item => item.videoId === vId);
+      let updated = [...prev];
+      
+      let item;
+      if (existingIdx >= 0) {
+        item = { ...prev[existingIdx] };
+        updated.splice(existingIdx, 1);
+      } else {
+        item = { url: urlInput, id: Date.now(), videoId: vId, interval: 0, repetition: 0, easeFactor: 2.5 };
+      }
+
+      let { interval = 0, repetition = 0, easeFactor = 2.5 } = item;
+      
+      if (quality >= 3) {
+        if (repetition === 0) interval = 1;
+        else if (repetition === 1) interval = 6;
+        else interval = Math.round(interval * easeFactor);
+        repetition += 1;
+      } else {
+        repetition = 0;
+        interval = 1;
+      }
+      
+      easeFactor = easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+      if (easeFactor < 1.3) easeFactor = 1.3;
+      
+      const now = Date.now();
+      item = {
+        ...item,
+        interval,
+        repetition,
+        easeFactor,
+        lastStudied: now,
+        nextReview: now + interval * 24 * 60 * 60 * 1000
+      };
+
+      updated = [item, ...updated];
+      localStorage.setItem('shadowing_urls', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   const handleDeleteUrl = (idToDelete, e) => {
     e.stopPropagation();
     const updated = savedUrls.filter(item => item.id !== idToDelete);
@@ -188,7 +276,6 @@ export default function Home() {
       });
     }
     
-    // Fetch phonetics for current sentence
     if (currentSentenceIndex !== -1 && transcript[currentSentenceIndex]) {
       const text = transcript[currentSentenceIndex].text;
       fetch('/api/phonetics', {
@@ -262,25 +349,40 @@ export default function Home() {
     ? Math.round(((currentSentenceIndex + 1) / transcript.length) * 100) 
     : 0;
 
+  const dueReviews = savedUrls.filter(item => item.nextReview && item.nextReview <= Date.now()).length;
+
   return (
     <div className={styles.appWrapper}>
+      <div className="noise-overlay" aria-hidden="true"></div>
+      
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
-          <div className={styles.operatorTitle}>OPERATOR_01</div>
-          <div className={styles.operatorSub}>LVL_42_STUDENT</div>
+          <div className={styles.operatorTitle}>TasteSkill</div>
+          <div className={styles.operatorSub}>SHADOWING WORKSPACE</div>
         </div>
         <div className={styles.sidebarMenu}>
           <div 
             className={`${styles.menuItem} ${currentTab === 'WORKSPACE' ? styles.active : ''}`}
             onClick={() => setCurrentTab('WORKSPACE')}
           >
-            <LayoutTemplate size={16} /> WORKSPACE
+            <LayoutTemplate size={18} /> Workspace
+          </div>
+          <div 
+            className={`${styles.menuItem} ${currentTab === 'DISCOVER' ? styles.active : ''}`}
+            onClick={() => setCurrentTab('DISCOVER')}
+          >
+            <Compass size={18} /> Discover
           </div>
           <div 
             className={`${styles.menuItem} ${currentTab === 'ARCHIVES' ? styles.active : ''}`}
             onClick={() => setCurrentTab('ARCHIVES')}
           >
-            <Library size={16} /> SAVED_ARCHIVES
+            <Library size={18} /> Archives
+            {dueReviews > 0 && (
+              <span style={{ marginLeft: 'auto', background: 'var(--accent)', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                {dueReviews} Due
+              </span>
+            )}
           </div>
         </div>
       </aside>
@@ -288,229 +390,275 @@ export default function Home() {
       <div className={styles.mainWrapper}>
         {currentTab === 'WORKSPACE' ? (
           <main className={styles.content}>
-          <div className={styles.leftPanel}>
-           
+            <div className={styles.leftPanel}>
+              <div className={styles.urlInputWrapper}>
+                <input
+                  type="text"
+                  className={styles.urlInput}
+                  placeholder="Paste YouTube URL here..."
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleFetch()}
+                />
+                <button 
+                  className={styles.urlBtn} 
+                  onClick={handleFetch}
+                  disabled={loading || !urlInput}
+                >
+                  {loading ? "Loading..." : "Load"}
+                </button>
+                <button 
+                  className={`${styles.urlBtn} ${styles.secondary}`} 
+                  onClick={handleSaveUrl}
+                  disabled={!urlInput}
+                  style={{ marginLeft: '0.5rem' }}
+                >
+                  Save
+                </button>
+              </div>
 
-            <div className={styles.urlInputWrapper}>
-              <input
-                type="text"
-                className={styles.urlInput}
-                placeholder="INPUT YOUTUBE URL SEQUENCE..."
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleFetch()}
-              />
-              <button 
-                className={styles.urlBtn} 
-                onClick={handleFetch}
-                disabled={loading || !urlInput}
-              >
-                {loading ? "LOAD..." : "INIT"}
-              </button>
-              <button 
-                className={`${styles.urlBtn} ${styles.secondary}`} 
-                onClick={handleSaveUrl}
-                disabled={!urlInput}
-              >
-                SAVE
-              </button>
+              {error && <div className={styles.error}>{error}</div>}
+
+              <div className={styles.videoWrapper}>
+                <div className={styles.videoHeader}>
+                  <span>REC [•] {formatTime(lastTimeRef.current)}</span>
+                </div>
+                <div className={styles.playerContainer}>
+                  {videoId ? (
+                    <YouTube
+                      videoId={videoId}
+                      onReady={onReady}
+                      onStateChange={onStateChange}
+                      opts={{
+                        width: "100%",
+                        height: "100%",
+                        playerVars: {
+                          autoplay: 1,
+                          modestbranding: 1,
+                          rel: 0,
+                        },
+                      }}
+                    />
+                  ) : (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                      No Signal
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className={styles.phoneticsBox}>
+                {currentPhonetics.length > 0 ? currentPhonetics.map((wordObj, i) => (
+                  <div key={i} className={styles.phoneticWord}>
+                    <div className={styles.pWord}>{wordObj.original}</div>
+                    <div className={styles.pIpa}>{wordObj.ipa || '-'}</div>
+                  </div>
+                )) : (
+                  <div style={{ opacity: 0.5, fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>Awaiting Sync</div>
+                )}
+              </div>
+
+              <div className={styles.playbackControls}>
+                <button className={styles.playBtn} onClick={prevSentence}><SkipBack size={18} /></button>
+                <button className={`${styles.playBtn} ${styles.primary}`} onClick={togglePlay}>
+                  {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+                </button>
+                <button className={styles.playBtn} onClick={nextSentence}><SkipForward size={18} /></button>
+                
+                <div className={styles.volumeBar} style={{ marginLeft: '1rem' }}>
+                  <div className={styles.volumeFill}></div>
+                </div>
+                
+                <div className={styles.timeDisplay}>
+                  {formatTime(lastTimeRef.current)} / {playerRef.current?.getDuration ? formatTime(playerRef.current.getDuration()) : "00:00"}
+                </div>
+              </div>
             </div>
 
-            {error && <div className={styles.error}>{error}</div>}
-
-            <div className={styles.videoWrapper}>
-              <div className={styles.videoHeader}>
-                <span>REC [•] {formatTime(lastTimeRef.current)}</span>
+            <div className={styles.rightPanel}>
+              <div className={styles.rightHeader}>
+                <div className={styles.rightTitle}>Transcript Sequence</div>
+                <div className={styles.rightActions}>
+                  <button 
+                    className={styles.actionBtn}
+                    onClick={() => handleMarkStudied(4)}
+                    style={{ background: 'var(--accent)', color: 'white', borderColor: 'var(--accent)' }}
+                    title="Mark this video as studied today to update Spaced Repetition"
+                  >
+                    Mark Studied
+                  </button>
+                  <button 
+                    className={styles.actionBtn}
+                    onClick={() => setAutoPause(!autoPause)}
+                  >
+                    Auto-Pause: {autoPause ? 'On' : 'Off'}
+                  </button>
+                  <button className={`${styles.actionBtn} ${styles.dark}`}>Shadow Mode</button>
+                </div>
               </div>
-              <div className={styles.playerContainer}>
-                {videoId ? (
-                  <YouTube
-                    videoId={videoId}
-                    onReady={onReady}
-                    onStateChange={onStateChange}
-                    opts={{
-                      width: "100%",
-                      height: "100%",
-                      playerVars: {
-                        autoplay: 1,
-                        modestbranding: 1,
-                        rel: 0,
-                      },
-                    }}
-                  />
-                ) : (
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontFamily: 'monospace' }}>
-                    NO_SIGNAL
+
+              <div className={styles.transcriptList} ref={transcriptListRef}>
+                {transcript.length > 0 ? transcript.map((sentence, index) => (
+                  <div
+                    key={index}
+                    ref={(el) => (sentenceRefs.current[index] = el)}
+                    className={`${styles.sentence} ${currentSentenceIndex === index ? styles.active : ""}`}
+                    onClick={() => handleSentenceClick(index)}
+                  >
+                    <div className={styles.sentenceMeta}>
+                      <span>{formatTime(sentence.start)}</span>
+                      <div className={styles.sentenceIcons}>
+                        <Repeat size={14} style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); handleSentenceClick(index); }}/>
+                        <Languages size={14} />
+                      </div>
+                    </div>
+                    <div className={styles.sentenceText}>"{sentence.text}"</div>
+                  </div>
+                )) : (
+                  <div style={{ padding: '3rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', textAlign: 'center', opacity: 0.6 }}>
+                    No sequence loaded.
                   </div>
                 )}
               </div>
-              <div className={styles.videoFooter}>
-                AUDIO_CH_1L_2R
-              </div>
-            </div>
 
-            <div className={styles.phoneticsBox}>
-              {currentPhonetics.length > 0 ? currentPhonetics.map((wordObj, i) => (
-                <div key={i} className={styles.phoneticWord}>
-                  <div className={styles.pWord}>{wordObj.original}</div>
-                  <div className={styles.pIpa}>{wordObj.ipa || '-'}</div>
+              <div className={styles.rightFooter}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                  <div className={styles.statBlock}>
+                    <span className={styles.statLabel}>Session Progress</span>
+                    <span className={styles.statValue}>
+                      {currentSentenceIndex >= 0 ? currentSentenceIndex + 1 : 0} <span style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>/ {transcript.length} lines</span>
+                    </span>
+                  </div>
+                  <div className={styles.statBlock} style={{ textAlign: 'right' }}>
+                    <span className={styles.statLabel}>Completion</span>
+                    <span className={styles.statValue} style={{ color: 'var(--accent)' }}>{progressPercentage}%</span>
+                  </div>
                 </div>
-              )) : (
-                <div style={{ opacity: 0.5, fontFamily: 'var(--font-mono)' }}>[ AWAITING_VOCAL_SYNC ]</div>
-              )}
-            </div>
-
-            <div className={styles.playbackControls}>
-              <button className={styles.playBtn} onClick={prevSentence}><SkipBack size={14} /></button>
-              <button className={`${styles.playBtn} ${styles.primary}`} onClick={togglePlay}>
-                {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-              </button>
-              <button className={styles.playBtn} onClick={nextSentence}><SkipForward size={14} /></button>
-              
-              <div className={styles.volumeBar} style={{ marginLeft: '1rem' }}>
-                <div className={styles.volumeFill}></div>
-              </div>
-              
-              <div className={styles.timeDisplay}>
-                {formatTime(lastTimeRef.current)} / {playerRef.current?.getDuration ? formatTime(playerRef.current.getDuration()) : "00:00"}
+                <div className={styles.progressBar}>
+                   <div className={styles.progressFill} style={{ width: `${progressPercentage}%` }}></div>
+                </div>
               </div>
             </div>
-          </div>
-
-          <div className={styles.rightPanel}>
-            <div className={styles.rightHeader}>
-              <div className={styles.rightTitle}>TRANSCRIBED_LINES_SEQ</div>
-              <div className={styles.rightActions}>
-                <button 
-                  className={styles.actionBtn}
-                  onClick={() => setAutoPause(!autoPause)}
-                  style={{ background: autoPause ? '#ddd' : 'transparent' }}
-                >
-                  AUTO_PAUSE: {autoPause ? 'ON' : 'OFF'}
+          </main>
+        ) : currentTab === 'DISCOVER' ? (
+          <main className={styles.discoverMain}>
+            <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+              <h2 className={styles.discoverTitle}>Discover Source Material</h2>
+              <div className={styles.searchBar}>
+                <input 
+                  type="text" 
+                  className={styles.searchInput}
+                  placeholder="Search for channels or topics..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+                <button className={styles.searchBtn} onClick={() => handleSearch()} disabled={isSearching}>
+                  {isSearching ? 'Searching...' : 'Search'}
                 </button>
-                <button className={`${styles.actionBtn} ${styles.dark}`}>SHADOW_MODE</button>
               </div>
-            </div>
 
-            <div className={styles.transcriptList} ref={transcriptListRef}>
-              {transcript.length > 0 ? transcript.map((sentence, index) => (
-                <div
-                  key={index}
-                  ref={(el) => (sentenceRefs.current[index] = el)}
-                  className={`${styles.sentence} ${currentSentenceIndex === index ? styles.active : ""}`}
-                  onClick={() => handleSentenceClick(index)}
-                >
-                  <div className={styles.sentenceMeta}>
-                    <span>{formatTime(sentence.start)}</span>
-                    <div className={styles.sentenceIcons}>
-                      <Repeat size={14} style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); handleSentenceClick(index); }}/>
-                      <Languages size={14} />
+              <div className={styles.recommendedSection}>
+                <h3 className={styles.sectionSubtitle}>Select level to find materials</h3>
+                
+                {RECOMMENDED_BY_LEVEL.map((group, groupIdx) => (
+                  <div key={groupIdx} className={styles.levelSection}>
+                    <div className={styles.levelHeader}>
+                      <span className={styles.levelTitle}>{group.level}</span>
+                      <span className={styles.levelBadge}>{group.badge}</span>
+                    </div>
+                    <div className={styles.recommendedGrid}>
+                      {group.channels.map((ch, idx) => (
+                        <div key={idx} className={styles.channelCard} onClick={() => {
+                          setSearchQuery(ch.url);
+                          handleSearch(ch.url);
+                        }}>
+                          <div className={styles.channelName}>{ch.name}</div>
+                          <div className={styles.channelDesc}>{ch.description}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div className={styles.sentenceText}>"{sentence.text}"</div>
-                </div>
-              )) : (
-                <div style={{ padding: '2rem', fontFamily: 'monospace', color: '#555', textAlign: 'center' }}>
-                  AWAITING_INPUT_SEQUENCE...
-                </div>
+                ))}
+              </div>
+
+              {searchError && <div className={styles.error}>{searchError}</div>}
+
+              <div className={styles.resultsGrid}>
+                {searchResults.map((video, idx) => (
+                  <div key={idx} className={styles.resultCard}>
+                    <img src={video.thumbnail} alt={video.title} className={styles.resultThumb} />
+                    <div className={styles.resultInfo}>
+                      <div className={styles.resultTitle}>{video.title}</div>
+                      <div className={styles.resultMeta}>
+                        <span>{video.author.name}</span>
+                        <span>{video.timestamp}</span>
+                      </div>
+                      <button className={styles.loadBtn} onClick={() => {
+                        setUrlInput(video.url);
+                        setCurrentTab('WORKSPACE');
+                        handleFetch(video.url);
+                      }}>
+                        Load Sequence
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </main>
+        ) : (
+          <main className={styles.discoverMain}>
+            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+              <h2 className={styles.discoverTitle}>Saved Archives</h2>
+              
+              <div className={styles.archiveGrid}>
+                {savedUrls.map(item => {
+                  const vId = item.videoId || extractVideoId(item.url);
+                  return (
+                    <div 
+                      key={item.id} 
+                      className={styles.archiveCard}
+                      onClick={() => {
+                        setUrlInput(item.url);
+                        setCurrentTab('WORKSPACE');
+                        handleFetch(item.url);
+                      }}
+                    >
+                      <button 
+                        className={styles.deleteBtn}
+                        onClick={(e) => handleDeleteUrl(item.id, e)}
+                        title="Delete Archive"
+                      >
+                        <X size={16} />
+                      </button>
+                      <img 
+                        src={`https://img.youtube.com/vi/${vId}/hqdefault.jpg`} 
+                        alt="Thumbnail" 
+                        className={styles.archiveThumb}
+                      />
+                      <div className={styles.archiveInfo}>
+                        <div className={styles.archiveUrl}>
+                          {item.url}
+                        </div>
+                        <div className={styles.archiveMeta}>
+                          <span>{item.lastStudied ? `Last Studied: ${new Date(item.lastStudied).toLocaleDateString()}` : 'Not studied yet'}</span>
+                          {item.nextReview && (
+                            <span className={item.nextReview <= Date.now() ? styles.archiveDue : ''}>
+                              Review: {new Date(item.nextReview).toLocaleDateString()} {item.nextReview <= Date.now() && '(Due)'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {savedUrls.length === 0 && (
+                <div style={{ fontFamily: 'var(--font-mono)', opacity: 0.5, marginTop: '2rem' }}>No archives found.</div>
               )}
             </div>
-
-            <div className={styles.rightFooter} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <div className={styles.statBlock}>
-                  <span className={styles.statLabel}>SESSION_PROGRESS</span>
-                  <span className={styles.statValue}>
-                    {currentSentenceIndex >= 0 ? currentSentenceIndex + 1 : 0} / {transcript.length}_Lines
-                  </span>
-                </div>
-                <div className={styles.statBlock} style={{ textAlign: 'right' }}>
-                  <span className={styles.statLabel}>COMPLETION</span>
-                  <span className={styles.statValue}>{progressPercentage}%</span>
-                </div>
-              </div>
-              <div style={{ width: '100%', border: '1px solid black', height: '6px' }}>
-                 <div style={{ width: `${progressPercentage}%`, background: 'black', height: '100%' }}></div>
-              </div>
-            </div>
-          </div>
-        </main>
-        ) : (
-          <main style={{ padding: '3rem', overflowY: 'auto', flex: 1 }}>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '2.5rem', marginBottom: '2rem', borderBottom: '3px solid black', paddingBottom: '1rem' }}>
-              SAVED_ARCHIVES
-            </h2>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '2rem' }}>
-              {savedUrls.map(item => {
-                const vId = item.videoId || extractVideoId(item.url);
-                return (
-                  <div 
-                    key={item.id} 
-                    style={{ 
-                      position: 'relative',
-                      border: '3px solid black', 
-                      cursor: 'pointer', 
-                      background: 'var(--bg-dark)', 
-                      color: 'white', 
-                      padding: '0.5rem',
-                      transition: 'transform 0.1s'
-                    }}
-                    onClick={() => {
-                      setUrlInput(item.url);
-                      setCurrentTab('WORKSPACE');
-                      handleFetch(item.url);
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-4px)'}
-                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                  >
-                    <button 
-                      onClick={(e) => handleDeleteUrl(item.id, e)}
-                      style={{
-                        position: 'absolute',
-                        top: '-10px',
-                        right: '-10px',
-                        background: '#ff0000',
-                        color: 'white',
-                        border: '3px solid black',
-                        width: '30px',
-                        height: '30px',
-                        fontFamily: 'var(--font-mono)',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        zIndex: 10,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                      title="DELETE ARCHIVE"
-                    >
-                      X
-                    </button>
-                    <img 
-                      src={`https://img.youtube.com/vi/${vId}/hqdefault.jpg`} 
-                      alt="Thumbnail" 
-                      style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', border: '1px solid #333' }} 
-                    />
-                    <div style={{ 
-                      marginTop: '1rem', 
-                      fontFamily: 'var(--font-mono)', 
-                      fontSize: '0.75rem', 
-                      whiteSpace: 'nowrap', 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis',
-                      padding: '0 0.5rem 0.5rem 0.5rem'
-                    }}>
-                      {item.url}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            
-            {savedUrls.length === 0 && (
-              <div style={{ fontFamily: 'var(--font-mono)', opacity: 0.5 }}>[ NO_ARCHIVES_FOUND ]</div>
-            )}
           </main>
         )}
       </div>
