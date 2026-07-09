@@ -1,6 +1,8 @@
 import { YoutubeTranscript } from 'youtube-transcript';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Merges raw YouTube transcript fragments into natural sentences.
  *

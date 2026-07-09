@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import YouTube from "react-youtube";
-import { Play, Pause, SkipBack, SkipForward, Repeat, Languages, LayoutTemplate, Library, Compass, X } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Repeat, Languages, LayoutTemplate, Library, Compass, X, RotateCcw } from "lucide-react";
 import styles from "./page.module.css";
 
 export default function Home() {
@@ -21,6 +21,8 @@ export default function Home() {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
+  const [playerReady, setPlayerReady] = useState(false);
+  const [initialSeekDoneId, setInitialSeekDoneId] = useState("");
 
   const RECOMMENDED_BY_LEVEL = [
     {
@@ -69,6 +71,8 @@ export default function Home() {
       return;
     }
     setVideoId(id);
+    setPlayerReady(false);
+    setInitialSeekDoneId("");
     setLoading(true);
     setTranscript([]);
     setCurrentSentenceIndex(-1);
@@ -82,7 +86,12 @@ export default function Home() {
       } else {
         setTranscript(data.transcript);
         if (data.transcript.length > 0) {
-          setCurrentSentenceIndex(0);
+          const savedProgress = localStorage.getItem(`shadowing_progress_${id}`);
+          if (savedProgress !== null && !isNaN(parseInt(savedProgress))) {
+            setCurrentSentenceIndex(parseInt(savedProgress));
+          } else {
+            setCurrentSentenceIndex(0);
+          }
         }
       }
     } catch (err) {
@@ -129,6 +138,12 @@ export default function Home() {
         } else {
           playerRef.current.playVideo();
         }
+      } else if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        if (currentSentence) {
+          playerRef.current.seekTo(currentSentence.start);
+          playerRef.current.playVideo();
+        }
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         if (currentSentenceIndex < transcript.length - 1) {
@@ -169,7 +184,9 @@ export default function Home() {
 
         if (!isSeeking && currentSentenceIndex !== -1) {
           const currentSentence = transcript[currentSentenceIndex];
-          if (lastTime <= currentSentence.end && currentTime >= currentSentence.end) {
+          const STOP_OFFSET = 0.15;
+          const targetEnd = currentSentence.end - STOP_OFFSET;
+          if (lastTime <= targetEnd && currentTime >= targetEnd) {
             if (autoPause) {
               playerRef.current.pauseVideo();
               return;
@@ -199,6 +216,25 @@ export default function Home() {
     const saved = localStorage.getItem('shadowing_urls');
     if (saved) setSavedUrls(JSON.parse(saved));
   }, []);
+
+  useEffect(() => {
+    if (videoId && currentSentenceIndex >= 0) {
+      localStorage.setItem(`shadowing_progress_${videoId}`, currentSentenceIndex);
+    }
+  }, [videoId, currentSentenceIndex]);
+
+  useEffect(() => {
+    if (playerReady && playerRef.current && transcript.length > 0 && videoId && initialSeekDoneId !== videoId) {
+      const savedProgress = localStorage.getItem(`shadowing_progress_${videoId}`);
+      if (savedProgress !== null && !isNaN(parseInt(savedProgress))) {
+         const idx = parseInt(savedProgress);
+         if (transcript[idx]) {
+           playerRef.current.seekTo(transcript[idx].start);
+         }
+      }
+      setInitialSeekDoneId(videoId);
+    }
+  }, [playerReady, transcript, videoId, initialSeekDoneId]);
 
   const handleSaveUrl = () => {
     if (!urlInput) return;
@@ -295,6 +331,7 @@ export default function Home() {
 
   const onReady = (event) => {
     playerRef.current = event.target;
+    setPlayerReady(true);
   };
 
   const onStateChange = (event) => {
@@ -323,6 +360,13 @@ export default function Home() {
     if (state === 1) {
       playerRef.current.pauseVideo();
     } else {
+      playerRef.current.playVideo();
+    }
+  };
+
+  const replaySentence = () => {
+    if (playerRef.current && currentSentenceIndex !== -1) {
+      playerRef.current.seekTo(transcript[currentSentenceIndex].start);
       playerRef.current.playVideo();
     }
   };
@@ -464,6 +508,7 @@ export default function Home() {
                   {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
                 </button>
                 <button className={styles.playBtn} onClick={nextSentence}><SkipForward size={18} /></button>
+                <button className={styles.playBtn} onClick={replaySentence} style={{ marginLeft: '0.5rem' }} title="Replay Sentence (R)"><RotateCcw size={18} /></button>
                 
                 <div className={styles.volumeBar} style={{ marginLeft: '1rem' }}>
                   <div className={styles.volumeFill}></div>
