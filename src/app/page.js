@@ -184,12 +184,14 @@ export default function Home() {
 
         if (!isSeeking && currentSentenceIndex !== -1) {
           const currentSentence = transcript[currentSentenceIndex];
-          const STOP_OFFSET = 0.15;
-          const targetEnd = currentSentence.end - STOP_OFFSET;
-          if (lastTime <= targetEnd && currentTime >= targetEnd) {
-            if (autoPause) {
-              playerRef.current.pauseVideo();
-              return;
+          if (currentSentence) {
+            const STOP_OFFSET = 0.15;
+            const targetEnd = currentSentence.end - STOP_OFFSET;
+            if (lastTime < targetEnd && currentTime >= targetEnd) {
+              if (autoPause) {
+                playerRef.current.pauseVideo();
+                return;
+              }
             }
           }
         }
