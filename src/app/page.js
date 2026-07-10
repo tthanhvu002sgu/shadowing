@@ -222,8 +222,15 @@ export default function Home() {
   useEffect(() => {
     if (videoId && currentSentenceIndex >= 0) {
       localStorage.setItem(`shadowing_progress_${videoId}`, currentSentenceIndex);
+      if (transcript[currentSentenceIndex]) {
+        localStorage.setItem(`shadowing_time_${videoId}`, transcript[currentSentenceIndex].start);
+      }
+      if (playerRef.current && typeof playerRef.current.getDuration === 'function') {
+        const dur = playerRef.current.getDuration();
+        if (dur > 0) localStorage.setItem(`shadowing_duration_${videoId}`, dur);
+      }
     }
-  }, [videoId, currentSentenceIndex]);
+  }, [videoId, currentSentenceIndex, transcript]);
 
   useEffect(() => {
     if (playerReady && playerRef.current && transcript.length > 0 && videoId && initialSeekDoneId !== videoId) {
@@ -695,6 +702,37 @@ export default function Home() {
                               Review: {new Date(item.nextReview).toLocaleDateString()} {item.nextReview <= Date.now() && '(Due)'}
                             </span>
                           )}
+                        </div>
+                        <div style={{ marginTop: '0.75rem' }}>
+                          {(() => {
+                            // Using safe check since we read inside render (only safe here because savedUrls is populated post-mount)
+                            if (typeof window !== 'undefined') {
+                              const t = localStorage.getItem(`shadowing_time_${vId}`);
+                              const d = localStorage.getItem(`shadowing_duration_${vId}`);
+                              if (t && d && !isNaN(parseFloat(d)) && parseFloat(d) > 0) {
+                                const timeVal = parseFloat(t);
+                                const durVal = parseFloat(d);
+                                const perc = Math.min(100, Math.round((timeVal / durVal) * 100));
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                                      <span>Stopped at: {formatTime(timeVal)}</span>
+                                      <span>{perc}%</span>
+                                    </div>
+                                    <div style={{ height: '4px', background: 'rgba(0,0,0,0.1)', borderRadius: '2px', width: '100%' }}>
+                                      <div style={{ height: '100%', background: 'var(--accent)', borderRadius: '2px', width: `${perc}%` }}></div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                                  Stopped at: {t ? formatTime(parseFloat(t)) : '00:00.00'}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
                     </div>
