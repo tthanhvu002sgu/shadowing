@@ -111,7 +111,7 @@ export async function GET(request) {
   }
 
   try {
-    const transcript = await YoutubeTranscript.fetchTranscript(url, { lang: 'en' });
+    const transcript = await YoutubeTranscript.fetchTranscript(url);
 
     const processedTranscript = groupIntoSentences(transcript);
 
