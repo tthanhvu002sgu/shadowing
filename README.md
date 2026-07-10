@@ -45,9 +45,10 @@
 - Hoàn thiện tính năng lưu lịch sử, ghi nhận tiến trình xem chi tiết tới từng giây (`Stopped at`).
 - Tích hợp cơ bản thuật toán ôn tập Spaced Repetition.
 - Refactor (tách) `src/app/page.js` ra thành các file Component con riêng biệt (`Sidebar`, `PlayerPanel`, `TranscriptSequence`, `Discover`, `Archives`) để tối ưu mã nguồn.
+- Chuyển đổi dữ liệu sang dùng Database (Firebase Firestore) thay vì LocalStorage.
+- Tích hợp đăng nhập bằng Google Sign-In qua Firebase Auth.
 
 ## 5. Các task chưa làm
-- Chuyển đổi dữ liệu sang dùng Database (Supabase / Firebase / MongoDB) thay vì LocalStorage để lưu trữ đa thiết bị.
 - Xử lý cache/database cho Transcript để không phải gọi API YouTube liên tục làm chậm hoặc bị rate limit.
 
 ---
@@ -55,6 +56,7 @@
 ## 6. Update Logs
 *(Quy định bắt buộc: Mọi update đều phải ghi log vào file này)*
 
+- **[2026-07-10]**: Di chuyển dữ liệu sang Firebase. Tạo tự động Firebase project bằng công cụ AI (MCP), thiết lập Firestore database, thêm tính năng Google Sign-in để đồng bộ tiến trình học trên mọi thiết bị thay vì LocalStorage.
 - **[2026-07-10]**: Refactor `src/app/page.js` thành các components độc lập (`Sidebar`, `Discover`, `Archives`, `Workspace/PlayerPanel`, `Workspace/TranscriptSequence`) để mã nguồn sạch và dễ quản lý hơn. Bỏ task "Ghi âm" theo yêu cầu.
 - **[2026-07-10]**: Tạo file README ghi rõ tổng quan, kiến trúc, component và task.
 - **[2026-07-10]**: Cập nhật tính năng Saved Archives: hiển thị tiến trình phần trăm và mốc thời gian lưu (Stopped at).

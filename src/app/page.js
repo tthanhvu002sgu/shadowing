@@ -7,8 +7,12 @@ import Archives from "@/components/Archives";
 import Workspace from "@/components/Workspace/Workspace";
 import { extractVideoId } from "@/lib/utils";
 import styles from "./page.module.css";
+import { useAuth } from "@/components/AuthProvider";
+import { db } from "@/lib/firebase";
+import { doc, setDoc, getDoc, collection, onSnapshot, deleteDoc, updateDoc } from "firebase/firestore";
 
 export default function Home() {
+  const { user } = useAuth();
   const [urlInput, setUrlInput] = useState("");
   const [videoId, setVideoId] = useState("");
   const [transcript, setTranscript] = useState([]);
@@ -83,10 +87,17 @@ export default function Home() {
         setError(data.error);
       } else {
         setTranscript(data.transcript);
+        setTranscript(data.transcript);
         if (data.transcript.length > 0) {
-          const savedProgress = localStorage.getItem(`shadowing_progress_${id}`);
-          if (savedProgress !== null && !isNaN(parseInt(savedProgress))) {
-            setCurrentSentenceIndex(parseInt(savedProgress));
+          if (user) {
+            const docRef = doc(db, "users", user.uid, "archives", id);
+            getDoc(docRef).then(docSnap => {
+              if (docSnap.exists() && docSnap.data().progressIndex !== undefined) {
+                setCurrentSentenceIndex(docSnap.data().progressIndex);
+              } else {
+                setCurrentSentenceIndex(0);
+              }
+            }).catch(() => setCurrentSentenceIndex(0));
           } else {
             setCurrentSentenceIndex(0);
           }
@@ -199,102 +210,100 @@ export default function Home() {
   }, [currentSentenceIndex, transcript, autoPause]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('shadowing_urls');
-    if (saved) setSavedUrls(JSON.parse(saved));
-  }, []);
+    if (!user) return;
+    const unsubscribe = onSnapshot(collection(db, "users", user.uid, "archives"), (snapshot) => {
+      const urls = [];
+      snapshot.forEach(docSnap => {
+        urls.push({ id: docSnap.id, videoId: docSnap.id, ...docSnap.data() });
+      });
+      urls.sort((a, b) => (b.lastStudied || 0) - (a.lastStudied || 0));
+      setSavedUrls(urls);
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
-    if (videoId && currentSentenceIndex >= 0) {
-      localStorage.setItem(`shadowing_progress_${videoId}`, currentSentenceIndex);
-      if (transcript[currentSentenceIndex]) {
-        localStorage.setItem(`shadowing_time_${videoId}`, transcript[currentSentenceIndex].start);
-      }
+    if (videoId && currentSentenceIndex >= 0 && user) {
+      const time = transcript[currentSentenceIndex] ? transcript[currentSentenceIndex].start : 0;
+      let duration = 0;
       if (playerRef.current && typeof playerRef.current.getDuration === 'function') {
-        const dur = playerRef.current.getDuration();
-        if (dur > 0) localStorage.setItem(`shadowing_duration_${videoId}`, dur);
+        duration = playerRef.current.getDuration() || 0;
       }
+      
+      const docRef = doc(db, "users", user.uid, "archives", videoId);
+      setDoc(docRef, {
+        progressIndex: currentSentenceIndex,
+        progressTime: time,
+        duration: duration
+      }, { merge: true }).catch(err => console.error("Auto-save failed", err));
     }
-  }, [videoId, currentSentenceIndex, transcript]);
+  }, [videoId, currentSentenceIndex, transcript, user]);
 
   useEffect(() => {
     if (playerReady && playerRef.current && transcript.length > 0 && videoId && initialSeekDoneId !== videoId) {
-      const savedProgress = localStorage.getItem(`shadowing_progress_${videoId}`);
-      if (savedProgress !== null && !isNaN(parseInt(savedProgress))) {
-         const idx = parseInt(savedProgress);
-         if (transcript[idx]) {
-           playerRef.current.seekTo(transcript[idx].start);
-         }
+      if (user) {
+        getDoc(doc(db, "users", user.uid, "archives", videoId)).then(docSnap => {
+          if (docSnap.exists() && docSnap.data().progressIndex !== undefined) {
+             const idx = docSnap.data().progressIndex;
+             if (transcript[idx]) {
+               playerRef.current.seekTo(transcript[idx].start);
+             }
+          }
+        });
       }
       setInitialSeekDoneId(videoId);
     }
   }, [playerReady, transcript, videoId, initialSeekDoneId]);
 
-  const handleSaveUrl = () => {
-    if (!urlInput) return;
+  const handleSaveUrl = async () => {
+    if (!urlInput || !user) return;
     if (savedUrls.some(item => item.url === urlInput)) return;
     
     const vId = extractVideoId(urlInput);
     if (!vId) return;
 
-    const newEntry = { url: urlInput, id: Date.now(), videoId: vId };
-    const updated = [newEntry, ...savedUrls];
-    setSavedUrls(updated);
-    localStorage.setItem('shadowing_urls', JSON.stringify(updated));
+    const docRef = doc(db, "users", user.uid, "archives", vId);
+    await setDoc(docRef, { url: urlInput, videoId: vId, createdAt: Date.now() }, { merge: true });
   };
 
-  const handleMarkStudied = (quality = 4) => {
-    if (!urlInput) return;
+  const handleMarkStudied = async (quality = 4) => {
+    if (!urlInput || !user) return;
     const vId = extractVideoId(urlInput);
     if (!vId) return;
 
-    setSavedUrls(prev => {
-      const existingIdx = prev.findIndex(item => item.videoId === vId);
-      let updated = [...prev];
-      
-      let item;
-      if (existingIdx >= 0) {
-        item = { ...prev[existingIdx] };
-        updated.splice(existingIdx, 1);
-      } else {
-        item = { url: urlInput, id: Date.now(), videoId: vId, interval: 0, repetition: 0, easeFactor: 2.5 };
-      }
-
-      let { interval = 0, repetition = 0, easeFactor = 2.5 } = item;
-      
-      if (quality >= 3) {
-        if (repetition === 0) interval = 1;
-        else if (repetition === 1) interval = 6;
-        else interval = Math.round(interval * easeFactor);
-        repetition += 1;
-      } else {
-        repetition = 0;
-        interval = 1;
-      }
-      
-      easeFactor = easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-      if (easeFactor < 1.3) easeFactor = 1.3;
-      
-      const now = Date.now();
-      item = {
-        ...item,
-        interval,
-        repetition,
-        easeFactor,
-        lastStudied: now,
-        nextReview: now + interval * 24 * 60 * 60 * 1000
-      };
-
-      updated = [item, ...updated];
-      localStorage.setItem('shadowing_urls', JSON.stringify(updated));
-      return updated;
-    });
+    const existingItem = savedUrls.find(item => item.videoId === vId);
+    let { interval = 0, repetition = 0, easeFactor = 2.5 } = existingItem || {};
+    
+    if (quality >= 3) {
+      if (repetition === 0) interval = 1;
+      else if (repetition === 1) interval = 6;
+      else interval = Math.round(interval * easeFactor);
+      repetition += 1;
+    } else {
+      repetition = 0;
+      interval = 1;
+    }
+    
+    easeFactor = easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+    if (easeFactor < 1.3) easeFactor = 1.3;
+    
+    const now = Date.now();
+    const docRef = doc(db, "users", user.uid, "archives", vId);
+    await setDoc(docRef, {
+      url: urlInput,
+      videoId: vId,
+      interval,
+      repetition,
+      easeFactor,
+      lastStudied: now,
+      nextReview: now + interval * 24 * 60 * 60 * 1000
+    }, { merge: true });
   };
 
-  const handleDeleteUrl = (idToDelete, e) => {
+  const handleDeleteUrl = async (idToDelete, e) => {
     e.stopPropagation();
-    const updated = savedUrls.filter(item => item.id !== idToDelete);
-    setSavedUrls(updated);
-    localStorage.setItem('shadowing_urls', JSON.stringify(updated));
+    if (!user) return;
+    await deleteDoc(doc(db, "users", user.uid, "archives", idToDelete));
   };
 
   useEffect(() => {
