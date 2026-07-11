@@ -50,13 +50,14 @@
 - Tích hợp đăng nhập bằng Google Sign-In qua Firebase Auth.
 
 ## 5. Các task chưa làm
-- Xử lý cache/database cho Transcript để không phải gọi API YouTube liên tục làm chậm hoặc bị rate limit.
+- (Đã hoàn thành các task chính)
 
 ---
 
 ## 6. Update Logs
 *(Quy định bắt buộc: Mọi update đều phải ghi log vào file này)*
 
+- **[2026-07-11]**: Xử lý cache Transcript bằng Client-Side Firestore Database. Giảm tải số lượng API request đến YouTube, tăng tốc độ load video và ngăn ngừa lỗi rate-limit.
 - **[2026-07-11]**: Thêm tính năng Import kênh YouTube bất kỳ ở tab Discover. Tích hợp backend API `/api/channel` và lưu danh sách kênh đã import (tối đa 50 kênh) vào Firestore theo user account.
 - **[2026-07-10]**: Di chuyển dữ liệu sang Firebase. Tạo tự động Firebase project bằng công cụ AI (MCP), thiết lập Firestore database, thêm tính năng Google Sign-in để đồng bộ tiến trình học trên mọi thiết bị thay vì LocalStorage.
 - **[2026-07-10]**: Refactor `src/app/page.js` thành các components độc lập (`Sidebar`, `Discover`, `Archives`, `Workspace/PlayerPanel`, `Workspace/TranscriptSequence`) để mã nguồn sạch và dễ quản lý hơn. Bỏ task "Ghi âm" theo yêu cầu.
