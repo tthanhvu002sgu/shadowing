@@ -7,7 +7,7 @@
 - Lặp lại câu hiện tại, lùi về câu trước, tiến tới câu sau.
 - Phím tắt tiện lợi: `Space` (Play/Pause), `R` hoặc `Tab` (Replay), `Arrow Left/Right` (Prev/Next).
 - Tự động lấy và hiển thị phiên âm IPA cho từ vựng trong câu.
-- Tab **Discover**: Tìm kiếm và gợi ý các kênh video hữu ích theo trình độ (IELTS 4.5 - 7.0+).
+- Tab **Discover**: Tìm kiếm, gợi ý kênh theo trình độ và cho phép **Import kênh YouTube bất kỳ** để luyện tập (lưu theo từng tài khoản giới hạn 50 kênh).
 - Tab **Archives**: Lưu trữ lại lịch sử video đã học.
 - Thuật toán **Spaced Repetition (Lặp lại ngắt quãng)**: Tính toán thời gian ôn tập lại dựa trên chất lượng học.
 - Ghi nhớ tiến trình học: Lưu lại chính xác thời điểm giây cuối cùng (`Stopped at: MM:SS.ms`) cũng như tổng phần trăm hoàn thành của video.
@@ -18,6 +18,7 @@
 - **Backend (API Routes)**:
   - `/api/transcript`: Lấy phụ đề từ YouTube qua thư viện `youtube-transcript`.
   - `/api/search`: Tìm kiếm video YouTube qua thư viện `yt-search`.
+  - `/api/channel`: Tìm kiếm thông tin kênh YouTube cụ thể (phục vụ chức năng Import kênh).
   - `/api/phonetics`: Gọi bên thứ 3 để lấy phiên âm (IPA) cho từng từ.
 - **Data Storage**: Tạm thời dùng LocalStorage để lưu trữ ở phía client (Lịch sử học `shadowing_urls`, tiến trình `shadowing_progress_...`, `shadowing_time_...`, `shadowing_duration_...`).
 - **Deployment**: Vercel (sử dụng Node.js runtime cho các API vì có dùng node modules).
@@ -56,6 +57,7 @@
 ## 6. Update Logs
 *(Quy định bắt buộc: Mọi update đều phải ghi log vào file này)*
 
+- **[2026-07-11]**: Thêm tính năng Import kênh YouTube bất kỳ ở tab Discover. Tích hợp backend API `/api/channel` và lưu danh sách kênh đã import (tối đa 50 kênh) vào Firestore theo user account.
 - **[2026-07-10]**: Di chuyển dữ liệu sang Firebase. Tạo tự động Firebase project bằng công cụ AI (MCP), thiết lập Firestore database, thêm tính năng Google Sign-in để đồng bộ tiến trình học trên mọi thiết bị thay vì LocalStorage.
 - **[2026-07-10]**: Refactor `src/app/page.js` thành các components độc lập (`Sidebar`, `Discover`, `Archives`, `Workspace/PlayerPanel`, `Workspace/TranscriptSequence`) để mã nguồn sạch và dễ quản lý hơn. Bỏ task "Ghi âm" theo yêu cầu.
 - **[2026-07-10]**: Tạo file README ghi rõ tổng quan, kiến trúc, component và task.

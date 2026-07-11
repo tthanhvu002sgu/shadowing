@@ -640,6 +640,7 @@
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
+  position: relative;
 }
 
 .channelCard:hover {
@@ -782,7 +783,8 @@
   opacity: 0;
 }
 
-.archiveCard:hover .deleteBtn {
+.archiveCard:hover .deleteBtn,
+.channelCard:hover .deleteBtn {
   opacity: 1;
 }
 
